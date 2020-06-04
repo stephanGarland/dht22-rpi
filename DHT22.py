@@ -10,8 +10,117 @@ import time
 
 import pigpio
 
+# Thank you to u/chepner: https://stackoverflow.com/a/18700817/4221094
+class MinTempArg(argparse.Action):
+    """
+    Better workaround than the custom type to set minimumm polling interval
+    """
 
-class sensor:
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values < 3:
+            parser.error('Minimum polling interval is 3 for DHT22 stability'.format(option_string))
+        setattr(namespace, self.dest, values)
+
+class Setup:
+    """
+    Sets up args
+    """
+
+    def make_args(self):
+        parser = argparse.ArgumentParser(
+            prog='DHT22',
+            description='Parse the output of a DHT22 sensor'
+        )
+
+        parser.add_argument(
+            '-t',
+            '--temp',
+            default='F',
+            choices=['C', 'F', 'K', 'R'],
+            type=str,
+            help='Unit for temperature',
+        )
+
+        parser.add_argument(
+            '-i',
+            '--interval',
+            action=MinTempArg,
+            default=300,
+            type=int,
+            help='Interval between logging in seconds'
+        )
+
+        parser.add_argument(
+            '-g',
+            '--gpio',
+            default=5,
+            type=int,
+            help='GPIO pin sensor is connected to'
+        )
+
+        parser.add_argument(
+            '-f',
+            '--file',
+            type=str,
+            help='Path to logfile'
+        )
+
+        parser.add_argument(
+            '-l',
+            '--lower',
+            type=int,
+            default=40,
+            help='Lower limit (F) to alert at'
+        )
+
+        parser.add_argument(
+            '-u',
+            '--upper',
+            type=int,
+            default=100,
+            help='Upper limit (F) to alert at'
+        )
+
+        parser.add_argument(
+            '-w',
+            '--warn',
+            type=bool,
+            default=False,
+            help='Enable warnings in logs'
+        )
+
+        return parser.parse_args()
+
+    def setup_logger(self, logfile):
+        logger = logging.getLogger('server_room_temp')
+        logger.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s',
+                            '%Y-%m-%d %H:%M:%S')
+
+        if logfile:
+            file_handler = logging.FileHandler(logfile)
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+        else:
+            stdout_handler = logging.StreamHandler()
+            stdout_handler.setLevel(logging.DEBUG)
+            stdout_handler.setFormatter(formatter)
+            logger.addHandler(stdout_handler)
+
+        return logger
+
+    def write_log(self, logger, warn, temp, humidity, upper, lower):
+        if (warn and (temp > upper) or (temp < lower)):
+            logger.warning(
+                'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity)
+            )
+        else:
+            logger.info(
+                'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity)
+            )
+
+class Sensor:
 
     """
    A class to read relative humidity and temperature from the
@@ -104,15 +213,13 @@ class sensor:
         level,
         tick,
     ):
-        """
-      Accumulate the 40 data bits.  Format into 5 bytes, humidity high,
-      humidity low, temperature high, temperature low, checksum.
-      """
+
+      # Accumulate the 40 data bits.  Format into 5 bytes, humidity high,
+      # humidity low, temperature high, temperature low, checksum.
 
         diff = pigpio.tickDiff(self.high_tick, tick)
 
         if level == 0:
-
          # Edge length determines if bit is 1 or 0.
 
             if diff >= 50:
@@ -124,26 +231,18 @@ class sensor:
 
             if self.bit >= 40:  # Message complete.
                 self.bit = 40
+
             elif self.bit >= 32:
-
                 # In checksum byte.
-
                 self.CS = (self.CS << 1) + val
-
                 if self.bit == 39:
-
                    # 40th bit received.
-
                     self.pi.set_watchdog(self.gpio, 0)
-
                     self.no_response = 0
-
                     total = self.hH + self.hL + self.tH + self.tL
 
                     if total & 255 == self.CS:  # Is checksum ok?
-
                         self.rhum = ((self.hH << 8) + self.hL) * 0.1
-
                         if self.tH & 128:  # Negative temperature.
                             mult = -0.1
                             self.tH = self.tH & 127
@@ -151,43 +250,33 @@ class sensor:
                             mult = 0.1
 
                         self.temp = ((self.tH << 8) + self.tL) * mult
-
                         self.tov = time.time()
 
                         if self.LED is not None:
                             self.pi.write(self.LED, 0)
+
                     else:
-
                         self.bad_CS += 1
+
             elif self.bit >= 24:
-
                 # in temp low byte
-
                 self.tL = (self.tL << 1) + val
             elif self.bit >= 16:
-
                 # in temp high byte
-
                 self.tH = (self.tH << 1) + val
             elif self.bit >= 8:
-
                 # in humidity low byte
-
                 self.hL = (self.hL << 1) + val
             elif self.bit >= 0:
-
                 # in humidity high byte
-
                 self.hH = (self.hH << 1) + val
             else:
-
                 # header bits
-
                 pass
 
             self.bit += 1
-        elif level == 1:
 
+        elif level == 1:
             self.high_tick = tick
             if diff > 250000:
                 self.bit = -2
@@ -197,9 +286,7 @@ class sensor:
                 self.tL = 0
                 self.CS = 0
         else:
-
             # level == pigpio.TIMEOUT:
-
             self.pi.set_watchdog(self.gpio, 0)
             if self.bit < 8:  # Too few data bits received.
                 self.bad_MM += 1  # Bump missing message count.
@@ -214,31 +301,25 @@ class sensor:
                         self.pi.write(self.power, 1)
                         time.sleep(2)
                         self.powered = True
+
             elif self.bit < 39:
-
                 # Short message receieved.
-
                 self.bad_SM += 1  # Bump short message count.
                 self.no_response = 0
             else:
-
                 # Full message received.
-
                 self.no_response = 0
 
     def temperature(self):
         """Return current temperature."""
-
         return self.temp
 
     def humidity(self):
         """Return current relative humidity."""
-
         return self.rhum
 
     def staleness(self):
         """Return time since measurement made."""
-
         if self.tov is not None:
             return time.time() - self.tov
         else:
@@ -246,27 +327,22 @@ class sensor:
 
     def bad_checksum(self):
         """Return count of messages received with bad checksums."""
-
         return self.bad_CS
 
     def short_message(self):
         """Return count of short messages."""
-
         return self.bad_SM
 
     def missing_message(self):
         """Return count of missing messages."""
-
         return self.bad_MM
 
     def sensor_resets(self):
         """Return count of power cycles because of sensor hangs."""
-
         return self.bad_SR
 
     def trigger(self):
         """Trigger a new relative humidity and temperature reading."""
-
         if self.powered:
             if self.LED is not None:
                 self.pi.write(self.LED, 1)
@@ -278,107 +354,51 @@ class sensor:
 
     def cancel(self):
         """Cancel the DHT22 sensor."""
-
         self.pi.set_watchdog(self.gpio, 0)
-
         if self.cb != None:
             self.cb.cancel()
             self.cb = None
 
+    def temp_c_to_f(self, temp):
+        self.temp = temp
+        return self.temp * 9 / 5 + 32
+
+    def temp_c_to_k(self, temp):
+        self.temp = temp
+        return self.temp + 273.15
+
+    def temp_c_to_r(self, temp):
+        self.temp = temp
+        return self.temp * 9/5 + 491.67
 
 if __name__ == '__main__':
 
     import DHT22
 
-    def interval_type(x):
-        x = int(x)
-        if x < 3:
-            raise argparse.ArgumentTypeError('Minimum polling interval is 3 for DHT22 stability'
-                                             )
-        return x
-
-    parser = argparse.ArgumentParser(prog='DHT22',
-                                     description='Parse the output of a DHT22 sensor')
-
-    parser.add_argument(
-        '-t',
-        '--temp',
-        default='F',
-        choices=['C', 'F', 'K', 'R'],
-        type=str,
-        help='Unit for temperature',
-    )
-    parser.add_argument('-i', '--interval', default=300,
-                        type=interval_type,
-                        help='Interval between logging in seconds')
-    parser.add_argument('-g', '--gpio', default=5, type=int,
-                        help='GPIO pin sensor is connected to')
-
-    parser.add_argument('-f', '--file', type=str, help='Path to logfile'
-                        )
-
-    parser.add_argument('-l', '--lower', type=int, default=40,
-                        help='Lower limit (F) to alert at')
-
-    parser.add_argument('-u', '--upper', type=int, default=100,
-                        help='Upper limit (F) to alert at')
-
-    args = parser.parse_args()
-
-    INTERVAL = args.interval
+    init = DHT22.Setup()
+    args = init.make_args()
+    logger = init.setup_logger(args.file)
 
     pi = pigpio.pi()
-
-    s = DHT22.sensor(pi, args.gpio, LED=16, power=8)
-
-    r = 0
-
+    s = DHT22.Sensor(pi, args.gpio, LED=16, power=8)
+    INTERVAL = args.interval
     next_reading = time.time()
 
-    logger = logging.getLogger('server_room_temp')
-    logger.setLevel(logging.DEBUG)
-    formatter = \
-        logging.Formatter('%(asctime)s %(levelname)s %(message)s',
-                          '%Y-%m-%d %H:%M:%S')
-
-    if args.file:
-        file_handler = logging.FileHandler(args.file)
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    else:
-        stdout_handler = logging.StreamHandler()
-        stdout_handler.setLevel(logging.DEBUG)
-        stdout_handler.setFormatter(formatter)
-        logger.addHandler(stdout_handler)
-
     while True:
-
-        r += 1
-
         s.trigger()
-
         time.sleep(0.2)
 
         if args.temp == 'C':
             temp = s.temperature()
         elif args.temp == 'F':
-            temp = s.temperature() * 9 / 5 + 32
+            temp = s.temp_c_to_f(s.temperature())
         elif args.temp == 'K':
-            temp = s.temperature() + 273.15
+            temp = s.temp_c_to_k(s.temperature())
         elif args.temp == 'R':
-            temp = s.temperature() * 9 / 5 + 32 + 459.67
+            temp = s.temp_c_to_r(s.temperature())
         humidity = s.humidity()
 
-        if temp >= args.upper:
-            logger.warning('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp,
-                                                                     humidity))
-        if temp <= args.lower:
-            logger.warning('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp,
-                                                                     humidity))
-        else:
-            logger.info('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp,
-                                                                  humidity))
+        init.write_log(logger, args.warn, temp, humidity, args.upper, args.lower)
 
         next_reading += INTERVAL
 
