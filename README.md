@@ -19,3 +19,6 @@ Finally, you may need to kill the container to get it to stop. It's in alpha, it
 $ docker build -t $YOUR_TAG .
 
 $ docker run --privileged $YOUR_TAG
+
+![Example log]
+(https://i.imgur.com/t3tMCSF.png)
