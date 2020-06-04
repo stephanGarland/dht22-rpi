@@ -21,4 +21,4 @@ $ docker build -t $YOUR_TAG .
 $ docker run --privileged $YOUR_TAG
 
 ![Example log]
-(https://i.imgur.com/t3tMCSF.png)
+(example_log.png)
