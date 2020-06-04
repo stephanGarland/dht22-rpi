@@ -12,8 +12,6 @@ You also need to run it in privileged mode to get access to GPIO. If you know of
 
 Not on Dockerhub yet, so clone this onto your Pi and build it.
 
-Finally, you may need to kill the container to get it to stop. It's in alpha, it'll get better.
-
 ### Build and run instructions
 
 $ docker build -t $YOUR_TAG .
