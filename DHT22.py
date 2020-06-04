@@ -23,7 +23,7 @@ class MinTempArg(argparse.Action):
 
 class Setup:
     """
-    Sets up args
+    Sets up args and logging capabilities
     """
 
     def make_args(self):
@@ -146,27 +146,21 @@ class Sensor:
    gpio ------------+
    """
 
-    def __init__(
-        self,
-        pi,
-        gpio,
-        LED=None,
-        power=None,
-    ):
+    def __init__(self, pi, gpio, LED=None, power=None):
         """
-      Instantiate with the Pi and gpio to which the DHT22 output
-      pin is connected.
+        Instantiate with the Pi and gpio to which the DHT22 output
+        pin is connected.
 
-      Optionally a LED may be specified.  This will be blinked for
-      each successful reading.
+        Optionally a LED may be specified.  This will be blinked for
+        each successful reading.
 
-      Optionally a gpio used to power the sensor may be specified.
-      This gpio will be set high to power the sensor.  If the sensor
-      locks it will be power cycled to restart the readings.
+        Optionally a gpio used to power the sensor may be specified.
+        This gpio will be set high to power the sensor.  If the sensor
+        locks it will be power cycled to restart the readings.
 
-      Taking readings more often than about once every two seconds will
-      eventually cause the DHT22 to hang.  A 3 second interval seems OK.
-      """
+        Taking readings more often than about once every two seconds will
+        eventually cause the DHT22 to hang.  A 3 second interval seems OK.
+        """
 
         self.pi = pi
         self.gpio = gpio
@@ -188,7 +182,7 @@ class Sensor:
         self.bad_MM = 0  # Missing message count.
         self.bad_SR = 0  # Sensor reset count.
 
-      # Power cycle if timeout > MAX_TIMEOUTS.
+        # Power cycle if timeout > MAX_TIMEOUTS.
 
         self.no_response = 0
         self.MAX_NO_RESPONSE = 2
@@ -207,21 +201,14 @@ class Sensor:
 
         self.cb = pi.callback(gpio, pigpio.EITHER_EDGE, self._cb)
 
-    def _cb(
-        self,
-        gpio,
-        level,
-        tick,
-    ):
-
-      # Accumulate the 40 data bits.  Format into 5 bytes, humidity high,
-      # humidity low, temperature high, temperature low, checksum.
+    def _cb(self, gpio, level, tick,):
+        # Accumulate the 40 data bits.  Format into 5 bytes, humidity high,
+        # humidity low, temperature high, temperature low, checksum.
 
         diff = pigpio.tickDiff(self.high_tick, tick)
 
         if level == 0:
-         # Edge length determines if bit is 1 or 0.
-
+            # Edge length determines if bit is 1 or 0.
             if diff >= 50:
                 val = 1
                 if diff >= 200:  # Bad bit?
@@ -231,12 +218,11 @@ class Sensor:
 
             if self.bit >= 40:  # Message complete.
                 self.bit = 40
-
             elif self.bit >= 32:
                 # In checksum byte.
                 self.CS = (self.CS << 1) + val
                 if self.bit == 39:
-                   # 40th bit received.
+                    # 40th bit received.
                     self.pi.set_watchdog(self.gpio, 0)
                     self.no_response = 0
                     total = self.hH + self.hL + self.tH + self.tL
@@ -273,7 +259,6 @@ class Sensor:
             else:
                 # header bits
                 pass
-
             self.bit += 1
 
         elif level == 1:
