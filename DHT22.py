@@ -36,11 +36,11 @@ class Docker(NamedTuple):
     Note that file MUST be specified.
     """
     temp:       str = os.getenv('temp', 'F')
-    interval:   int = os.getenv('interval', 300)
-    gpio:       int = os.getenv('gpio', 5)
+    interval:   int = int(os.getenv('interval', 300))
+    gpio:       int = int(os.getenv('gpio', 5))
     file:       str = os.getenv('file')
-    lower:      int = os.getenv('lower', 40)
-    upper:      int = os.getenv('upper', 100)
+    lower:      int = int(os.getenv('lower', 40))
+    upper:      int = int(os.getenv('upper', 100))
     warn:       bool = os.getenv('warn', True)
     pushbullet: str = os.getenv('pushbullet', None)
 
@@ -150,7 +150,7 @@ class Setup:
             if pushbullet:
                 try: 
                     pb = Pushbullet(pushbullet)
-                    pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
+                    push = pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
                 except InvalidKeyError:
                     logger.error('Invalid Pushbullet API key')
         else:

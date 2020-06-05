@@ -1,2 +1,2 @@
 pigpio==1.46
-pushbullet==0.9.1
+pushbullet.py==0.9.1

@@ -5,14 +5,11 @@ ADD https://github.com/joan2937/pigpio/archive/master.zip /usr/src
 RUN unzip /usr/src/master.zip
 RUN make -C ./pigpio-master && make install -C ./pigpio-master
 
-COPY requirements.txt .
-COPY main.sh .
-COPY DHT22.py .
-COPY main.sh .
+COPY requirements.txt ./
+COPY DHT22.py ./
+COPY main.sh ./
 
-FROM python:3.7-slim-buster AS runner
-WORKDIR /home
-COPY --from=builder /usr/src/* .
 RUN pip install -r requirements.txt
 ENV IS_DOCKER True
+
 CMD [ "/bin/bash", "main.sh" ]
