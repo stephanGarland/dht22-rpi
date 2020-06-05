@@ -9,6 +9,7 @@ import logging
 import os
 import time
 
+from pushbullet import Pushbullet
 from typing import NamedTuple
 
 import pigpio
@@ -150,7 +151,7 @@ class Setup:
             if pushbullet:
                 try: 
                     pb = Pushbullet(pushbullet)
-                    push = pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
+                    pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
                 except InvalidKeyError:
                     logger.error('Invalid Pushbullet API key')
         else:
