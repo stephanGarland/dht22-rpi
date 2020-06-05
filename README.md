@@ -28,7 +28,7 @@ or
 
 then
 
-`$ docker run -d --privileged -v /path/on/host:/usr/src -e file='$FILENAME.log' $YOUR_TAG`
+`$ docker run -d --privileged -v /path/on/host:/home/log -e file='$FILENAME.log' $YOUR_TAG`
 
 
 
