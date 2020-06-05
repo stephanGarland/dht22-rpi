@@ -1,6 +1,6 @@
 # dht22-rpi
 
-### pigpio and Python code taken from http://abyz.me.uk/rpi/pigpio/index.html
+### pigpio and Python code (class Sensor) taken from http://abyz.me.uk/rpi/pigpio/index.html
 
 ### Notes
 
