@@ -71,4 +71,4 @@ optional arguments:
 
 #### Docker
 
-Pass desired long-form args from above as environment variables as seen in the run example, using `-e file=...`
+Pass desired long-form args from above as environment variables as seen in the run example, using `-e file=...` Don't forget to include `-e TZ $YOUR_TZ` per the [tzdb format.](https://en.wikipedia.org/wiki/Tz_database)
