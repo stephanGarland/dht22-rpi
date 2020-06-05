@@ -6,14 +6,20 @@
 import argparse
 import atexit
 import logging
+import os
 import time
+
+from pushbullet import Pushbullet
+from typing import NamedTuple
 
 import pigpio
 
 # Thank you to u/chepner: https://stackoverflow.com/a/18700817/4221094
 class MinTempArg(argparse.Action):
+
+
     """
-    Better workaround than the custom type to set minimumm polling interval
+    Better workaround than the custom type to set minimum polling interval
     """
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -21,9 +27,30 @@ class MinTempArg(argparse.Action):
             parser.error('Minimum polling interval is 3 for DHT22 stability'.format(option_string))
         setattr(namespace, self.dest, values)
 
-class Setup:
+
+class Docker(NamedTuple):
+
     """
-    Sets up args
+    Retrieves named environment variables passed in from the user
+    and applies their values to variables to be passed for args.
+    If absent, the second argument to os.getenv() is used as a default.
+    Note that file MUST be specified.
+    """
+    temp:       str = os.getenv('temp', 'F')
+    interval:   int = int(os.getenv('interval', 300))
+    gpio:       int = int(os.getenv('gpio', 5))
+    file:       str = os.getenv('file')
+    lower:      int = int(os.getenv('lower', 40))
+    upper:      int = int(os.getenv('upper', 100))
+    warn:       bool = os.getenv('warn', True)
+    pushbullet: str = os.getenv('pushbullet', None)
+
+
+class Setup:
+
+
+    """
+    Sets up args and logging capabilities
     """
 
     def make_args(self):
@@ -85,17 +112,25 @@ class Setup:
             '-w',
             '--warn',
             type=bool,
-            default=False,
+            default=True,
             help='Enable warnings in logs'
+        )
+
+        parser.add_argument(
+            '-p',
+            '--pushbullet',
+            type=str,
+            default=None,
+            help='API key for Pushbullet'
         )
 
         return parser.parse_args()
 
+    
     def setup_logger(self, logfile):
         logger = logging.getLogger('server_room_temp')
         logger.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s',
-                            '%Y-%m-%d %H:%M:%S')
+        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s', '%Y-%m-%d %H:%M:%S')
 
         if logfile:
             file_handler = logging.FileHandler(logfile)
@@ -110,63 +145,60 @@ class Setup:
 
         return logger
 
-    def write_log(self, logger, warn, temp, humidity, upper, lower):
+    def write_log(self, logger, warn, temp, humidity, upper, lower, pushbullet):
         if (warn and (temp > upper) or (temp < lower)):
-            logger.warning(
-                'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity)
-            )
+            logger.warning('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
+            if pushbullet:
+                try: 
+                    pb = Pushbullet(pushbullet)
+                    pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
+                except InvalidKeyError:
+                    logger.error('Invalid Pushbullet API key')
         else:
-            logger.info(
-                'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity)
-            )
+            logger.info('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
 
 class Sensor:
 
+
     """
-   A class to read relative humidity and temperature from the
-   DHT22 sensor.  The sensor is also known as the AM2302.
+    A class to read relative humidity and temperature from the
+    DHT22 sensor.  The sensor is also known as the AM2302.
 
-   The sensor can be powered from the Pi 3V3 or the Pi 5V rail.
+    The sensor can be powered from the Pi 3V3 or the Pi 5V rail.
 
-   Powering from the 3V3 rail is simpler and safer.  You may need
-   to power from 5V if the sensor is connected via a long cable.
+    Powering from the 3V3 rail is simpler and safer.  You may need
+    to power from 5V if the sensor is connected via a long cable.
 
-   For 3V3 operation connect pin 1 to 3V3 and pin 4 to ground.
+    For 3V3 operation connect pin 1 to 3V3 and pin 4 to ground.
 
-   Connect pin 2 to a gpio.
+    Connect pin 2 to a gpio.
 
-   For 5V operation connect pin 1 to 5V and pin 4 to ground.
+    For 5V operation connect pin 1 to 5V and pin 4 to ground.
 
-   The following pin 2 connection works for me.  Use at YOUR OWN RISK.
+    The following pin 2 connection works for me.  Use at YOUR OWN RISK.
 
-   5V--5K_resistor--+--10K_resistor--Ground
-                    |
-   DHT22 pin 2 -----+
-                    |
-   gpio ------------+
-   """
+    5V--5K_resistor--+--10K_resistor--Ground
+                        |
+    DHT22 pin 2 -----+
+                        |
+    gpio ------------+
+    """
 
-    def __init__(
-        self,
-        pi,
-        gpio,
-        LED=None,
-        power=None,
-    ):
+    def __init__(self, pi, gpio, LED=None, power=None):
         """
-      Instantiate with the Pi and gpio to which the DHT22 output
-      pin is connected.
+        Instantiate with the Pi and gpio to which the DHT22 output
+        pin is connected.
 
-      Optionally a LED may be specified.  This will be blinked for
-      each successful reading.
+        Optionally a LED may be specified.  This will be blinked for
+        each successful reading.
 
-      Optionally a gpio used to power the sensor may be specified.
-      This gpio will be set high to power the sensor.  If the sensor
-      locks it will be power cycled to restart the readings.
+        Optionally a gpio used to power the sensor may be specified.
+        This gpio will be set high to power the sensor.  If the sensor
+        locks it will be power cycled to restart the readings.
 
-      Taking readings more often than about once every two seconds will
-      eventually cause the DHT22 to hang.  A 3 second interval seems OK.
-      """
+        Taking readings more often than about once every two seconds will
+        eventually cause the DHT22 to hang.  A 3 second interval seems OK.
+        """
 
         self.pi = pi
         self.gpio = gpio
@@ -188,7 +220,7 @@ class Sensor:
         self.bad_MM = 0  # Missing message count.
         self.bad_SR = 0  # Sensor reset count.
 
-      # Power cycle if timeout > MAX_TIMEOUTS.
+        # Power cycle if timeout > MAX_TIMEOUTS.
 
         self.no_response = 0
         self.MAX_NO_RESPONSE = 2
@@ -207,21 +239,14 @@ class Sensor:
 
         self.cb = pi.callback(gpio, pigpio.EITHER_EDGE, self._cb)
 
-    def _cb(
-        self,
-        gpio,
-        level,
-        tick,
-    ):
-
-      # Accumulate the 40 data bits.  Format into 5 bytes, humidity high,
-      # humidity low, temperature high, temperature low, checksum.
+    def _cb(self, gpio, level, tick,):
+        # Accumulate the 40 data bits.  Format into 5 bytes, humidity high,
+        # humidity low, temperature high, temperature low, checksum.
 
         diff = pigpio.tickDiff(self.high_tick, tick)
 
         if level == 0:
-         # Edge length determines if bit is 1 or 0.
-
+            # Edge length determines if bit is 1 or 0.
             if diff >= 50:
                 val = 1
                 if diff >= 200:  # Bad bit?
@@ -231,12 +256,11 @@ class Sensor:
 
             if self.bit >= 40:  # Message complete.
                 self.bit = 40
-
             elif self.bit >= 32:
                 # In checksum byte.
                 self.CS = (self.CS << 1) + val
                 if self.bit == 39:
-                   # 40th bit received.
+                    # 40th bit received.
                     self.pi.set_watchdog(self.gpio, 0)
                     self.no_response = 0
                     total = self.hH + self.hL + self.tH + self.tL
@@ -273,7 +297,6 @@ class Sensor:
             else:
                 # header bits
                 pass
-
             self.bit += 1
 
         elif level == 1:
@@ -375,9 +398,16 @@ if __name__ == '__main__':
 
     import DHT22
 
+    is_docker = os.environ.get("IS_DOCKER")
+
     init = DHT22.Setup()
-    args = init.make_args()
-    logger = init.setup_logger(args.file)
+
+    if is_docker:
+        args = DHT22.Docker()
+        logger = init.setup_logger(args.file)
+    else:
+        args = init.make_args()
+        logger = init.setup_logger(args.file)
 
     pi = pigpio.pi()
     s = DHT22.Sensor(pi, args.gpio, LED=16, power=8)
@@ -398,7 +428,7 @@ if __name__ == '__main__':
             temp = s.temp_c_to_r(s.temperature())
         humidity = s.humidity()
 
-        init.write_log(logger, args.warn, temp, humidity, args.upper, args.lower)
+        init.write_log(logger, args.warn, temp, humidity, args.upper, args.lower, args.pushbullet)
 
         next_reading += INTERVAL
 
