@@ -22,7 +22,15 @@ You also need to run it in privileged mode to get access to GPIO. If you know of
 
 `$ docker build -t $YOUR_TAG .`
 
-`$ docker run -d --privileged -v /path/on/host:/usr/src -e file='temps.log' $YOUR_TAG`
+or
+
+`$ docker pull stephangarland/rpi-dht22:latest`
+
+then
+
+`$ docker run -d --privileged -v /path/on/host:/usr/src -e file='$FILENAME.log' $YOUR_TAG`
+
+
 
 ### Usage / Options
 
