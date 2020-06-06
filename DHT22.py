@@ -6,6 +6,7 @@
 import argparse
 import atexit
 import logging
+import loggers.handlers
 import os
 import time
 
@@ -22,9 +23,9 @@ class MinTempArg(argparse.Action):
     Better workaround than the custom type to set minimum polling interval
     """
 
-    def __call__(self, parser, namespace, values, option_string=None):
+    def __call__(self, parser, namespace, values):
         if values < 3:
-            parser.error('Minimum polling interval is 3 for DHT22 stability'.format(option_string))
+            parser.error('Minimum polling interval is 3 for DHT22 stability')
         setattr(namespace, self.dest, values)
 
 
@@ -52,6 +53,8 @@ class Setup:
     """
     Sets up args and logging capabilities
     """
+
+    pushbullet_pushed = False
 
     def make_args(self):
         parser = argparse.ArgumentParser(
@@ -128,12 +131,12 @@ class Setup:
 
     
     def setup_logger(self, logfile):
-        logger = logging.getLogger('server_room_temp')
-        logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s', '%Y-%m-%d %H:%M:%S')
+        logger = logging.getLogger()
+        logger.setLevel(logging.DEBUG)
 
         if logfile:
-            file_handler = logging.FileHandler(logfile)
+            file_handler = logging.handlers.WatchedFileHandler(logfile)
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
@@ -145,15 +148,21 @@ class Setup:
 
         return logger
 
+    # Don't spam user with pushes - this is also easily modified to use an interval
+    @classmethod
+    def push_warning(self, pushbullet):
+            try:
+                pb = Pushbullet(pushbullet)
+                pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
+                Setup.pushbullet_pushed = True
+            except InvalidKeyError:
+                logger.error('Invalid Pushbullet API key')
+
     def write_log(self, logger, warn, temp, humidity, upper, lower, pushbullet):
         if (warn and (temp > upper) or (temp < lower)):
             logger.warning('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
-            if pushbullet:
-                try: 
-                    pb = Pushbullet(pushbullet)
-                    pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
-                except InvalidKeyError:
-                    logger.error('Invalid Pushbullet API key')
+            if (pushbullet and not Setup.pushbullet_pushed):
+                push_warning(pushbullet)
         else:
             logger.info('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
 
