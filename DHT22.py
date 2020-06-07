@@ -10,50 +10,35 @@ import logging.handlers
 import os
 import time
 
+from pushbullet import Pushbullet
 from typing import NamedTuple
 
 import pigpio
-import pushbullet
-
 
 # Thank you to u/chepner: https://stackoverflow.com/a/18700817/4221094
+
+
 class MinTempArg(argparse.Action):
+
+
     """
     Better workaround than the custom type to set minimum polling interval
     """
 
-    def __call__(self, parser, namespace, values, option_string):
+    def __call__(self, parser, namespace, values):
         if values < 3:
             parser.error('Minimum polling interval is 3 for DHT22 stability')
         setattr(namespace, self.dest, values)
 
 
-class Converter:
-    """
-    Converts temperature scales
-    """
-    def __init__(self, temp, unit):
-        self.temp = temp
-        self.unit = unit
-    
-    def converter(self):
-        if self.unit == 'C':
-            return self.temp
-        elif self.unit == 'F':
-            return self.temp * 9 / 5 + 32
-        elif self.unit == 'K':
-            return self.temp + 273.15
-        elif self.unit == 'R':
-            return self.temp * 9/5 + 491.67
-
-
 class Docker(NamedTuple):
+
+
     """
     Retrieves named environment variables passed in from the user
     and applies their values to variables to be passed for args.
     If absent, the second argument to os.getenv() is used as a default.
-    Nnote that if you specify a different unit for temperature, you 
-    must specify upper and lower temperatures as well.
+    Note that file MUST be specified.
 
     """
     temp:       str = os.getenv('temp', 'F')
@@ -63,11 +48,12 @@ class Docker(NamedTuple):
     lower:      int = int(os.getenv('lower', 40))
     upper:      int = int(os.getenv('upper', 100))
     warn:       bool = os.getenv('warn', True)
-    pb_key:     str = os.getenv('pb_key', None)
-    debug:      bool = os.getenv('debug', False)
+    pushbullet: str = os.getenv('pushbullet', None)
 
 
 class Setup:
+
+
     """
     Sets up args and logging capabilities.
     """
@@ -118,7 +104,7 @@ class Setup:
             '--lower',
             type=int,
             default=40,
-            help='Lower limit to alert at'
+            help='Lower limit (F) to alert at'
         )
 
         parser.add_argument(
@@ -126,7 +112,7 @@ class Setup:
             '--upper',
             type=int,
             default=100,
-            help='Upper limit to alert at'
+            help='Upper limit (F) to alert at'
         )
 
         parser.add_argument(
@@ -140,26 +126,18 @@ class Setup:
         parser.add_argument(
             '-p',
             '--pushbullet',
-            dest='pb_key',
             type=str,
             default=None,
             help='API key for Pushbullet'
         )
 
-        parser.add_argument(
-            '-d',
-            '--debug',
-            type=bool,
-            default=False,
-            help='Enable debug-level logging'
-        )
-
         return parser.parse_args()
 
-    def setup_logger(self, logfile, debug):
+    
+    def setup_logger(self, logfile):
         formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s', '%Y-%m-%d %H:%M:%S')
         logger = logging.getLogger()
-        logger.setLevel(logging.DEBUG if debug else logging.INFO)
+        logger.setLevel(logging.INFO)
 
         if logfile:
             file_handler = logging.handlers.WatchedFileHandler(logfile)
@@ -173,35 +151,28 @@ class Setup:
         return logger
 
     # Don't spam user with pushes - this is also easily modified to use an interval
-    def push_warning(self, logger, pb_key, temp, humidity):
-        try:
-            pb = pushbullet.Pushbullet(pb_key)
-            pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
-            Setup.pushbullet_pushed = True
-        except pushbullet.errors.InvalidKeyError:
-            # The reasoning here is that for this specific error, there's no point in spamming
-            # the API endpoint - it will still be logged to the user so it can be fixed.
-            Setup.pushbullet_pushed = True
-            logger.error('Invalid Pushbullet API key')
+    @staticmethod
+    def push_warning(pushbullet, temp, humidity):
+        if not Setup.pushbullet_pushed:
+            try:
+                pb = Pushbullet(pushbullet)
+                pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
+                Setup.pushbullet_pushed = True
+            except PushbulletError.InvalidKeyError:
+                logger.error('Invalid Pushbullet API key')
 
-    def write_log(self, logger, warn, temp, humidity, upper, lower, pb_key):
+    def write_log(self, logger, warn, temp, humidity, upper, lower, pushbullet):
         if (warn and (temp > upper) or (temp < lower)):
             logger.warning('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
-            if (pb_key and not Setup.pushbullet_pushed):
-                Setup.push_warning(self, logger, pb_key, temp, humidity)
+            if pushbullet:
+                Setup.push_warning(pushbullet, temp, humidity)
         else:
             logger.info('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
-    
-    def init_check(self, logger, upper, lower):
-        if (upper < lower):
-            logger.error('Upper limit can\'t be lower than lower limit')
-            raise SystemExit
-        elif (lower > upper):
-            logger.error('Lower limit can\'t be higher than high limit')
-            raise SystemExit
 
 
 class Sensor:
+
+
     """
     A class to read relative humidity and temperature from the
     DHT22 sensor.  The sensor is also known as the AM2302.
@@ -424,6 +395,17 @@ class Sensor:
             self.cb.cancel()
             self.cb = None
 
+    def temp_c_to_f(self, temp):
+        self.temp = temp
+        return self.temp * 9 / 5 + 32
+
+    def temp_c_to_k(self, temp):
+        self.temp = temp
+        return self.temp + 273.15
+
+    def temp_c_to_r(self, temp):
+        self.temp = temp
+        return self.temp * 9/5 + 491.67
 
 if __name__ == '__main__':
 
@@ -432,39 +414,16 @@ if __name__ == '__main__':
     is_docker = os.environ.get("IS_DOCKER")
 
     init = DHT22.Setup()
+
     if is_docker:
         args = DHT22.Docker()
+        logger = init.setup_logger(args.file)
     else:
         args = init.make_args()
-    
-    logger = init.setup_logger(args.file, args.debug)
-    init.init_check(logger, args.upper, args.lower)
-    logger.debug(
-        "\nStarting...\n \
-            Units: {}\n \
-            Interval: {}\n \
-            GPIO: {}\n \
-            Logfile: {}\n \
-            Warnings: {}\n \
-            Lower Warning: {}\n \
-            Upper Warning: {}\n \
-            Using Pushbullet: {}\n \
-            In Docker: {}\n".format(
-            args.temp,
-            args.interval,
-            args.gpio,
-            args.file,
-            True if args.warn else False,
-            args.lower,
-            args.upper,
-            True if args.pb_key else False,
-            is_docker
-        )
-    )
+        logger = init.setup_logger(args.file)
 
     pi = pigpio.pi()
     s = DHT22.Sensor(pi, args.gpio, LED=16, power=8)
-    converter = Converter(s.temperature(), args.temp)
     INTERVAL = args.interval
     next_reading = time.time()
 
@@ -472,10 +431,17 @@ if __name__ == '__main__':
         s.trigger()
         time.sleep(0.2)
 
-        temp = converter.converter()
+        if args.temp == 'C':
+            temp = s.temperature()
+        elif args.temp == 'F':
+            temp = s.temp_c_to_f(s.temperature())
+        elif args.temp == 'K':
+            temp = s.temp_c_to_k(s.temperature())
+        elif args.temp == 'R':
+            temp = s.temp_c_to_r(s.temperature())
         humidity = s.humidity()
 
-        init.write_log(logger, args.warn, temp, humidity, args.upper, args.lower, args.pb_key)
+        init.write_log(logger, args.warn, temp, humidity, args.upper, args.lower, args.pushbullet)
 
         next_reading += INTERVAL
 
