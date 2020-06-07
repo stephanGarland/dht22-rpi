@@ -6,7 +6,7 @@
 import argparse
 import atexit
 import logging
-import loggers.handlers
+import logging.handlers
 import os
 import time
 
@@ -16,6 +16,8 @@ from typing import NamedTuple
 import pigpio
 
 # Thank you to u/chepner: https://stackoverflow.com/a/18700817/4221094
+
+
 class MinTempArg(argparse.Action):
 
 
@@ -31,11 +33,13 @@ class MinTempArg(argparse.Action):
 
 class Docker(NamedTuple):
 
+
     """
     Retrieves named environment variables passed in from the user
     and applies their values to variables to be passed for args.
     If absent, the second argument to os.getenv() is used as a default.
     Note that file MUST be specified.
+
     """
     temp:       str = os.getenv('temp', 'F')
     interval:   int = int(os.getenv('interval', 300))
@@ -51,7 +55,7 @@ class Setup:
 
 
     """
-    Sets up args and logging capabilities
+    Sets up args and logging capabilities.
     """
 
     pushbullet_pushed = False
@@ -133,38 +137,38 @@ class Setup:
     def setup_logger(self, logfile):
         formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s', '%Y-%m-%d %H:%M:%S')
         logger = logging.getLogger()
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.INFO)
 
         if logfile:
             file_handler = logging.handlers.WatchedFileHandler(logfile)
-            file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
         else:
             stdout_handler = logging.StreamHandler()
-            stdout_handler.setLevel(logging.DEBUG)
             stdout_handler.setFormatter(formatter)
             logger.addHandler(stdout_handler)
 
         return logger
 
     # Don't spam user with pushes - this is also easily modified to use an interval
-    @classmethod
-    def push_warning(self, pushbullet):
+    @staticmethod
+    def push_warning(pushbullet, temp, humidity):
+        if not Setup.pushbullet_pushed:
             try:
                 pb = Pushbullet(pushbullet)
                 pb.push_note('Warning', 'Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
                 Setup.pushbullet_pushed = True
-            except InvalidKeyError:
+            except PushbulletError.InvalidKeyError:
                 logger.error('Invalid Pushbullet API key')
 
     def write_log(self, logger, warn, temp, humidity, upper, lower, pushbullet):
         if (warn and (temp > upper) or (temp < lower)):
             logger.warning('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
-            if (pushbullet and not Setup.pushbullet_pushed):
-                push_warning(pushbullet)
+            if pushbullet:
+                Setup.push_warning(pushbullet, temp, humidity)
         else:
             logger.info('Temp: {:0.1f} Humidity: {:0.1f}%'.format(temp, humidity))
+
 
 class Sensor:
 
