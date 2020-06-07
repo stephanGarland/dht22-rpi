@@ -25,7 +25,7 @@ class MinTempArg(argparse.Action):
     Better workaround than the custom type to set minimum polling interval
     """
 
-    def __call__(self, parser, namespace, values):
+    def __call__(self, parser, namespace, values, option_string):
         if values < 3:
             parser.error('Minimum polling interval is 3 for DHT22 stability')
         setattr(namespace, self.dest, values)
